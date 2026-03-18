@@ -9,7 +9,7 @@ import html
 # --- SETUP ---
 MODEL_PATH = "/Users/x/Documents/siva_env/Meta-Llama-3-8B-Instruct-Q4_K_M.gguf"
 
-print("Loading Llama 3 Brain... (Preparing the Researcher Agent)")
+print("Loading Llama 3 Brain... (Preparing the Multi-Agent Pipeline)")
 llm = LlamaCpp(
     model_path=MODEL_PATH,
     temperature=0.7, 
@@ -18,21 +18,16 @@ llm = LlamaCpp(
     verbose=False
 )
 
-# Initialize the Wikipedia Searcher
 wiki = WikipediaAPIWrapper(top_k_results=2, doc_content_chars_max=1000)
 
-# --- PROMPT ENGINEERING (Strict 6-Degrees Edition) ---
-template = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-You are an expert researcher playing the game "Six Degrees of Separation".
-Your ultimate goal is to connect the two topics provided by the user.
-
-CRITICAL GAME RULES:
-1. NO DIRECT LEAPS. You are strictly forbidden from connecting Topic A and Topic B in a single step or obvious shortcut.
-2. THE SCENIC ROUTE. You MUST use a chain of exactly 5 to 6 distinct, factual steps.
-3. THE MIDDLE-MEN. Each step must introduce a completely new, surprising intermediate concept (a person, a weird invention, a historical event) to act as a bridge between the previous step and the next.
-4. Write a dramatic, educational story detailing this convoluted chain of events.
+# --- AGENT 1: THE STORYTELLER (High Chaos) ---
+story_template = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are an expert researcher playing "Six Degrees of Separation".
+Connect the two topics in exactly 5 to 6 distinct, highly factual steps.
+Introduce weird, surprising intermediate concepts to act as bridges.
+Write a dramatic, educational story detailing this convoluted chain of events.
+Do NOT worry about formatting, just write the story.
 <|eot_id|><|start_header_id|>user<|end_header_id|>
-Here is real-time research from Wikipedia to help you build factual bridges:
 RESEARCH FOR TOPIC A:
 {context_a}
 
@@ -40,14 +35,19 @@ RESEARCH FOR TOPIC B:
 {context_b}
 
 Connect Topic A: {topic_a} to Topic B: {topic_b}
-
-CRITICAL INSTRUCTION: Do not hallucinate. Use the research provided.
-At the very end of your response, you MUST include a single line starting exactly with "PATH:" followed by the sequence of core concepts separated by " | ". 
-Example: PATH: Topic A | Middle Concept 1 | Middle Concept 2 | Middle Concept 3 | Middle Concept 4 | Topic B
 <|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+story_chain = PromptTemplate.from_template(story_template) | llm
 
-prompt = PromptTemplate.from_template(template)
-chain = prompt | llm
+# --- AGENT 2: THE CARTOGRAPHER (Strict Extraction) ---
+extract_template = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are a strict data extraction bot. Read the provided story and extract the chronological chain of concepts that connect the starting topic to the ending topic.
+Return ONLY a single line starting with "PATH:" followed by the concepts separated by " | ".
+Example: PATH: Topic A | Concept 1 | Concept 2 | Concept 3 | Topic B
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+STORY TO ANALYZE:
+{generated_story}
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+extract_chain = PromptTemplate.from_template(extract_template) | llm
 
 # --- GRAPH GENERATION ---
 def generate_graph_html(path_string):
@@ -73,46 +73,43 @@ def find_connection(topic_a, topic_b, chaos_level):
         yield "⚠️ Please enter both topics!", ""
         return
     
-    # STEP 1: Research Phase
-    yield f"🌐 *Searching Wikipedia for factual data on '{topic_a}' and '{topic_b}'...*", ""
+    # STEP 1: Research
+    yield f"🌐 *Searching Wikipedia for '{topic_a}' and '{topic_b}'...*", ""
+    try: wiki_data_a = wiki.run(topic_a)
+    except: wiki_data_a = "No data."
+    try: wiki_data_b = wiki.run(topic_b)
+    except: wiki_data_b = "No data."
     
-    try:
-        wiki_data_a = wiki.run(topic_a)
-    except:
-        wiki_data_a = "No Wikipedia data found."
-        
-    try:
-        wiki_data_b = wiki.run(topic_b)
-    except:
-        wiki_data_b = "No Wikipedia data found."
-    
-    # STEP 2: Generation Phase
-    yield f"🧠 *Research acquired. Diving into the rabbit hole at Chaos Level {chaos_level}...*", ""
+    # STEP 2: The Storyteller (Uses UI Chaos Level)
+    yield f"✍️ *Writing the narrative at Chaos Level {chaos_level}...*", ""
     llm.temperature = chaos_level
+    story_response = story_chain.invoke({
+        "topic_a": topic_a, "topic_b": topic_b,
+        "context_a": wiki_data_a, "context_b": wiki_data_b
+    }).strip()
     
-    response = chain.invoke({
-        "topic_a": topic_a, 
-        "topic_b": topic_b,
-        "context_a": wiki_data_a,
-        "context_b": wiki_data_b
-    })
-    full_text = response.strip()
+    yield story_response, "<p><em>Drawing the Evidence Board...</em></p>"
     
-    # STEP 3: Mapping Phase 
-    path_match = re.search(r'\*?\*?PATH:\*?\*?\s*(.*)', full_text, re.IGNORECASE)
+    # STEP 3: The Cartographer (Strictly analytical)
+    llm.temperature = 0.1
+    extraction_response = extract_chain.invoke({
+        "generated_story": story_response
+    }).strip()
+    
+    # STEP 4: Mapping
+    path_match = re.search(r'\*?\*?PATH:\*?\*?\s*(.*)', extraction_response, re.IGNORECASE)
     
     if path_match:
         path_string = path_match.group(1)
         graph_html = generate_graph_html(path_string)
-        story = full_text.replace(path_match.group(0), "").strip()
-        yield story, graph_html
+        yield story_response, graph_html
     else:
-        yield full_text, "<p style='color:red;'>⚠️ The AI got too creative and forgot to draw the map. Try again!</p>"
+        yield story_response, "<p style='color:red;'>⚠️ The Cartographer failed to map the path. Try again!</p>"
 
 # --- MODERN UI ---
 with gr.Blocks(theme=gr.themes.Monochrome()) as demo:
     gr.Markdown("# 🔗 Six Degrees of AI Separation")
-    gr.Markdown("Enter two completely unrelated topics. Watch the AI perform live Wikipedia research, build the narrative, and draw the interactive evidence board.")
+    gr.Markdown("Enter two completely unrelated topics. Watch the Multi-Agent pipeline research, write, and map the connections.")
     
     with gr.Row():
         t1 = gr.Textbox(label="Starting Point (Topic A)", placeholder="e.g., Black Holes")
