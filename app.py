@@ -13,20 +13,20 @@ print("Loading Llama 3 Brain... (Preparing the Researcher Agent)")
 llm = LlamaCpp(
     model_path=MODEL_PATH,
     temperature=0.7, 
-    max_tokens=800,
-    n_ctx=4096, # Increased memory to hold the Wikipedia articles!
+    max_tokens=1200, # INCREASED: Gives the AI more room to finish the story and draw the map
+    n_ctx=4096,
     verbose=False
 )
 
-# Initialize the Wikipedia Searcher (pulls the top 2 results, max 1000 characters each)
+# Initialize the Wikipedia Searcher
 wiki = WikipediaAPIWrapper(top_k_results=2, doc_content_chars_max=1000)
 
-# --- PROMPT ENGINEERING (Now with RAG!) ---
+# --- PROMPT ENGINEERING (Bulletproof Edition) ---
 template = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 You are an expert historian playing "Six Degrees of Separation".
 Connect the two topics provided by the user in 4 to 6 logical steps.
 Write a dramatic, educational story explaining the connection.
-
+<|eot_id|><|start_header_id|>user<|end_header_id|>
 Here is real-time research from Wikipedia to help you build factual bridges:
 RESEARCH FOR TOPIC A:
 {context_a}
@@ -34,11 +34,11 @@ RESEARCH FOR TOPIC A:
 RESEARCH FOR TOPIC B:
 {context_b}
 
+Connect Topic A: {topic_a} to Topic B: {topic_b}
+
 CRITICAL INSTRUCTION: Do not hallucinate. Use the research provided.
 At the very end of your response, you MUST include a single line starting exactly with "PATH:" followed by the sequence of core concepts separated by " | ". 
 Example: PATH: Topic A | Concept 1 | Concept 2 | Topic B
-<|eot_id|><|start_header_id|>user<|end_header_id|>
-Connect Topic A: {topic_a} to Topic B: {topic_b}
 <|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
 
 prompt = PromptTemplate.from_template(template)
@@ -93,8 +93,9 @@ def find_connection(topic_a, topic_b, chaos_level):
     })
     full_text = response.strip()
     
-    # STEP 3: Mapping Phase
-    path_match = re.search(r'PATH:\s*(.*)', full_text)
+    # STEP 3: Mapping Phase (New Bulletproof Regex applied here)
+    path_match = re.search(r'\*?\*?PATH:\*?\*?\s*(.*)', full_text, re.IGNORECASE)
+    
     if path_match:
         path_string = path_match.group(1)
         graph_html = generate_graph_html(path_string)
