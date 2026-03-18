@@ -13,7 +13,7 @@ print("Loading Llama 3 Brain... (Preparing the Researcher Agent)")
 llm = LlamaCpp(
     model_path=MODEL_PATH,
     temperature=0.7, 
-    max_tokens=1200, # INCREASED: Gives the AI more room to finish the story and draw the map
+    max_tokens=1200, 
     n_ctx=4096,
     verbose=False
 )
@@ -21,11 +21,16 @@ llm = LlamaCpp(
 # Initialize the Wikipedia Searcher
 wiki = WikipediaAPIWrapper(top_k_results=2, doc_content_chars_max=1000)
 
-# --- PROMPT ENGINEERING (Bulletproof Edition) ---
+# --- PROMPT ENGINEERING (Strict 6-Degrees Edition) ---
 template = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-You are an expert historian playing "Six Degrees of Separation".
-Connect the two topics provided by the user in 4 to 6 logical steps.
-Write a dramatic, educational story explaining the connection.
+You are an expert researcher playing the game "Six Degrees of Separation".
+Your ultimate goal is to connect the two topics provided by the user.
+
+CRITICAL GAME RULES:
+1. NO DIRECT LEAPS. You are strictly forbidden from connecting Topic A and Topic B in a single step or obvious shortcut.
+2. THE SCENIC ROUTE. You MUST use a chain of exactly 5 to 6 distinct, factual steps.
+3. THE MIDDLE-MEN. Each step must introduce a completely new, surprising intermediate concept (a person, a weird invention, a historical event) to act as a bridge between the previous step and the next.
+4. Write a dramatic, educational story detailing this convoluted chain of events.
 <|eot_id|><|start_header_id|>user<|end_header_id|>
 Here is real-time research from Wikipedia to help you build factual bridges:
 RESEARCH FOR TOPIC A:
@@ -38,7 +43,7 @@ Connect Topic A: {topic_a} to Topic B: {topic_b}
 
 CRITICAL INSTRUCTION: Do not hallucinate. Use the research provided.
 At the very end of your response, you MUST include a single line starting exactly with "PATH:" followed by the sequence of core concepts separated by " | ". 
-Example: PATH: Topic A | Concept 1 | Concept 2 | Topic B
+Example: PATH: Topic A | Middle Concept 1 | Middle Concept 2 | Middle Concept 3 | Middle Concept 4 | Topic B
 <|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
 
 prompt = PromptTemplate.from_template(template)
@@ -93,7 +98,7 @@ def find_connection(topic_a, topic_b, chaos_level):
     })
     full_text = response.strip()
     
-    # STEP 3: Mapping Phase (New Bulletproof Regex applied here)
+    # STEP 3: Mapping Phase 
     path_match = re.search(r'\*?\*?PATH:\*?\*?\s*(.*)', full_text, re.IGNORECASE)
     
     if path_match:
